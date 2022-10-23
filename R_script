@@ -1,0 +1,377 @@
+######################################################################################################################################
+######Random Forest Optimisation using Recursive Feature Elimination and tuneRF for Australian Alpine Land Cover Classification ######
+######################################################################################################################################
+
+###Load packages###
+
+
+
+
+###################################################################################################################################################################
+
+
+
+##########################
+##### 1) Set Up Data #####
+##########################
+
+
+##### 1.1) Import LANDSAT composite with Features from GEE#####
+#/// In GEE, create composite and add/select bands as you see fit -> Convert bands to double with composite.toDouble() -> Export to drive as .tif
+
+# 1.1.1) Set working directory that contains traning shp and LANDSAT composite
+setwd("E:/Uni/2019_PhD/Chapters/4 - Alpine NDVI/R Analysis/GEEKAA_RF/LANDSAT_DATA")
+
+# 1.1.2) Import composite
+img <- brick("comp_pre_RFE_2020.tif")
+View(img)
+
+# 1.1.3) Import training data as shapefile
+shp <- shapefile("KAA_training_polygons")
+View(shp)
+
+# 1.1.4) Compare CRS
+compareCRS(shp, img)
+
+
+##### 1.2) Extract samples with class labels and put them all together in a dataframe #### (This step may take awhile to run)
+names(img) <- c('SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7', 'ST_B10', 'ARVI', 'ATSAVI', 'BWDRVI', 'CI', 'CTVI', 'CVI',
+                'DEMA', 'DEME', 'DEMS', 'DVI', 'EVI', 'GARI', 'GBNDVI', 'GCVI', 'GDVI', 'GEMI', 'GLI', 'GNDVI', 'GOSAVI',
+                'GRNDVI', 'GSAVI', 'GVI', 'GVMI', 'INT', 'IPVI', 'LAI', 'MIDIRVI', 'MSAVI',
+                'MSR', 'NBR', 'NBR2', 'NDBaI', 'NDBSI', 'NDGRI', 'NDMI', 'NDMNI', 'NDNBI', 'NDNGI', 'NDRGRI', 'NDRI',
+                'NDVI', 'NDWI', 'NLI', 'NORMG', 'NORMIR', 'NORMR', 'OSAVI', 'PNDVI', 'R35', 'R54', 'RDVI', 'SAVI', 'SiRa', 
+                'SLAVI', 'SRDI', 'SRGI', 'SRRI', 'TCV', 'TCW', 'TDVI', 'TVI', 'VARI') #add bands used to generate composite in GEE
+smp <- extract(img, shp, df = TRUE)
+
+# 1.2.1) Create features and classes (check NA - cannot run RF with NA predictors)
+summary(is.na(smp)) # Check NAs, if no NAs = proceed
+smp$lc <- as.factor(shp$landcover[ match(smp$ID, seq(nrow(shp)) ) ]) #add ID and lc
+classes <- smp$lc # Create classes from lc column
+features <- subset(smp, select = c(-lc, -ID)) #Create features from compos0tie (need to remove ID & lc from features for prediction)
+summary(features) # Check fearures = bands in composite
+summary(classes) # Check classes = landcover training data
+
+
+##### 1.3) Plot RGB composite with training polygons #####
+plotRGB(img, r = 4, g = 3, b = 2, stretch = "lin")
+plot(shp, col="red", add=TRUE)
+
+
+
+###################################################################################################################################################################
+
+
+
+############################################
+##### 2) Recursive Feature Elimination #####
+############################################
+
+
+##### 2.1) Exploratory Data Analysis #####
+
+# 2.1.1) Number of pixels per land cover feature
+plot_bar(classes)
+
+# 2.1.2) Correlation plot of features
+plot_correlation(features)
+
+
+###### 2.2) Feature Selection####
+
+# 2.2.1) Define the control using a random forest selection function
+control <- rfeControl(functions = rfFuncs, # random forest
+                      method = "repeatedcv", # repeated cv
+                      repeats = 5, # number of repeats
+                      number = 10) # number of folds
+
+# 2.2.2) Randomly split dataset into training (80%) and testing (20%)
+#Features (predictor variables)
+x <- features
+#Land cover classes (target variables)
+y <- classes
+#Random Split
+set.seed(2021)
+inTrain <- createDataPartition(y, p = .80, list = FALSE)[,1]
+# x train-test
+x_train <- x[ inTrain, ]
+x_test  <- x[-inTrain, ]
+#y train-test
+y_train <- y[ inTrain]
+y_test  <- y[-inTrain]
+
+# 2.2.3) Run recursive feature selection
+# Run RFE
+result_rfe1 <- rfe(x = x_train, 
+                   y = y_train, 
+                   sizes = c(1:69),
+                   rfeControl = control) ### THIS STEP WILL TAKE HOURS, SO PLAN AHEAD ###
+# Print the results
+View(result_rfe1)
+result_rfe1
+result_rfe1$fit
+# Print the selected features
+predictors(result_rfe1)
+# Post prediction using testing data and compare with training data
+postResample(predict(result_rfe1, x_test), y_test)
+# Print the results visually
+plot(result_rfe1, "Accuracy", type = c("g", "o"), col = "black") # Shows optimised features based on accuracy
+plot(result_rfe1, "Kappa", type = c("g", "o"), col = "black") # Shows optimised features based on Kappa
+
+
+rfmodel__full <- tuneRF(x = features,
+                           y = classes,
+                           strata = smp$lc, #remove smp.size
+                           ntree = 2000,
+                           importance = TRUE,
+                           doBest = TRUE)
+varImpPlot(rfmodel__full, sort = TRUE, n.var = 69, main = 'Feature Importance')
+
+# 2.2.4) Feature Importance plot
+varimp_data <- data.frame(feature = row.names(varImp(result_rfe1))[1:8],
+                          importance = varImp(result_rfe1)[1:8, 1]) # 1:X - dependent on number of features chosen by RFE
+
+ggplot(data = varimp_data, 
+       aes(x = reorder(feature, -importance), y = importance, fill = feature)) +
+  geom_bar(stat="identity") + labs(x = "Features", y = "Variable Importance") + 
+  geom_text(aes(label = round(importance, 2)), vjust=1.6, color="white", size=4) + 
+  theme_bw() + theme(legend.position = "none")
+
+
+
+###################################################################################################################################################################
+
+
+
+###################################
+##### 3) Random Forest Tuning #####
+###################################
+
+
+
+##### 3.1) Import LANDSAT composite with RFE Features from GEE#####
+#/// #//After RFE, re-generate composite in GEE with features selected by RFE -> Convert bands to double with composite.toDouble() -> Export to drive as .tif -> import composite_RFE to R for RF tuning 
+
+# 3.1.1) Set working directory that contains traning shp and LANDSAT composite
+setwd("E:/Uni/2019_PhD/Chapters/4 - Alpine NDVI/R Analysis/GEEKAA_RF/LANDSAT_DATA")
+
+# 3.1.2) Import composite
+img_RFE <- brick("comp_RFE_2020.tif")
+View(img_RFE)
+
+# 3.1.3) Import training data as shapefile
+shp_RFE <- shapefile("KAA_training_polygons")
+View(shp_RFE)
+
+# 3.1.4) Compare CRS
+compareCRS(shp_RFE, img_RFE)
+
+
+##### 3.2) Extract samples with class labels and put them all together in a dataframe #### (This step may take awhile to run)
+names(img_RFE) <- c("DEME", "DEMS", "ST_B10", "DEMA", "CI", "NBR2", "GARI") # Bands predicted from predictors(result_rfe1)
+smp_RFE <- extract(img_RFE, shp_RFE, df = TRUE)
+
+# 3.2.1) Create features and classes (check NA - cannot run RF with NA predictors, and remove ID and lc columns from features -> don't want them as predictors)
+summary(is.na(smp_RFE)) # Check NAs, if no NAs = proceed
+smp_RFE$lc <- as.factor(shp_RFE$landcover[ match(smp_RFE$ID, seq(nrow(shp_RFE)) ) ]) #add ID and lc
+classes_RFE <- smp_RFE$lc # Create classes from lc column
+features_RFE <- subset(smp_RFE, select = c(-lc, -ID)) #Create features from compos0tie (need to remove ID & lc from features for prediction)
+summary(features_RFE) # Check fearures = bands in composite
+summary(classes_RFE) # Check classes = landcover training data
+
+# 3.2.2) Plot RGB composite with training polygons #####
+plotRGB(img_RFE, r = 6, g = 5, b = 12, stretch = "lin")
+plot(shp_RFE, col="red", add=TRUE)
+
+# 3.2.3 Number of pixels per land cover feature
+plot_bar(classes_RFE)
+
+# 3.2.4) Correlation plot of features
+plot_correlation(features_RFE)
+
+
+##### 3.3) Down-sampling from the minority class to limit overclassing of strongly represented land cover classes
+smp.size <- rep(min(summary(smp_RFE$lc)), nlevels(smp_RFE$lc))
+summary(smp.size)
+
+
+##### 3.4) Optimise RF with tuneRF to find optimal ntree and mtry
+rfmodel_RFE <- tuneRF(x = features_RFE,
+                  y = classes_RFE,
+                  sampsize = smp.size,
+                  strata = smp_RFE$lc,
+                  ntree = 2000,
+                  importance = TRUE,
+                  doBest = TRUE)
+
+# 3.4.1) Model details
+View(rfmodel_RFE)
+rfmodel_RFE
+
+# 3.4.2) Feature Importance plotting
+varImp(rfmodel_RFE)
+varImpPlot(rfmodel_RFE, sort = TRUE, n.var = 8, main = 'Feature Importance')
+
+# 3.4.3) ntree Importance plotting
+pal <- distinctColorPalette(k = 7)
+plot(rfmodel_RFE, col = pal, title = 'ntree Importance')
+
+
+##### 3.5) Save, run and plot RF_RFE model
+save(rfmodel_RFE, file = "rfmodel_RFE_.RData")
+load("rfmodel_RFE_.RData")
+
+# 3.5.1) Run model
+output <- predict(img_RFE,
+                  rfmodel_RFE,
+                  filename = "2020_RFE_classification.tif",
+                  overwrite = TRUE)
+# 3.5.2) Plot model
+plot(output, 
+     axes = FALSE, 
+     box = FALSE,
+     col = c('#004231',   # Treeline Snowgum Woodlands (TSW)
+             '#E67F33',   # Dry Alpine Heathlands (DAH) 
+             '#CE2220',   # Wet Alpine Heathlands (WAH) 
+             '#CED23E',   # Dry Alpine Grasslands (DAG)
+             '#7EB875',   # Wet Alpine Grasslands (WAG)
+             '#E7EBFA',   # Alpine Feldmark (AFM)
+             '#521913'))  # Alpine Rocky Outcrops (ARO) 
+
+
+
+###################################################################################################################################################################
+
+
+
+####################################
+#######4) FULL SAMPLE MODEL#########
+####################################
+
+##### 4.1) Optimise RF with tuneRF to find optimal ntree and mtry
+rfmodel_RFE_full_1 <- tuneRF(x = features_RFE,
+                           y = classes_RFE,
+                           strata = smp_RFE$lc, #remove smp.size
+                           ntree = 2000,
+                           importance = TRUE,
+                           doBest = TRUE)
+# 4.2.1) Model details
+View(rfmodel_RFE_full)
+rfmodel_RFE_full
+# 4.2.2) Feature Importance plotting
+varImp(rfmodel_RFE_full)
+varImpPlot(rfmodel_RFE_full, sort = TRUE, n.var = 7, main = 'Feature Importance')
+postResample(predict(rfmodel_RFE_full, x_test), y_test)
+# 4.2.3) ntree Importance plotting
+pal <- distinctColorPalette(k = 7)
+plot(rfmodel_RFE_full, col = pal, title = 'ntree Importance')
+
+##### 4.3) Save, run and plot RF_RFE model
+save(rfmodel_RFE_full, file = "rfmodel_RFE_full.RData")
+load("rfmodel_RFE_full.RData")
+# 4.3.1) Run model
+output_full <- predict(img_RFE,
+                       rfmodel_RFE_full,
+                       filename = "2020_RFE_full_classification.tif", # check effect on modelled location and areas for each class
+                       overwrite = TRUE)
+# 4.3.2) Plot model
+plot(output_full, 
+     axes = FALSE, 
+     box = FALSE,
+     col = c('#004231',   # Treeline Snowgum Woodlands (TSW)
+             '#E67F33',   # Dry Alpine Heathlands (DAH) 
+             '#CE2220',   # Wet Alpine Heathlands (WAH) 
+             '#CED23E',   # Dry Alpine Grasslands (DAG)
+             '#7EB875',   # Wet Alpine Grasslands (WAG)
+             '#E7EBFA',   # Alpine Feldmark (AFM)
+             '#521913'))  # Alpine Rocky Outcrops (ARO) 
+
+
+
+######Tutorials
+# https://blogs.fu-berlin.de/reseda/rf-classification/
+# https://towardsdatascience.com/effective-feature-selection-recursive-feature-elimination-using-r-148ff998e4f7#:~:text=Recursive%20Feature%20Elimination%C2%B2%2C%20or%20shortly,the%20optimal%20combination%20of%20features.
+
+###################################################################################################################################################################
+#####################################################END OF SCRIPT -> TIMESERIES###################################################################################
+###################################################################################################################################################################
+
+####################ST_B10 in 2020 rfmodel_RFE_full but ST_B6 in 1990, 2000, 2010   ----->>>NEED TO FIX<<<-------
+
+###############################
+##### 1990 classification #####
+###############################
+
+# Import 1990 composite
+img_1990 <- brick("comp_RFE_1990_b10.tif")
+View(img_1990)
+
+# 4.3.1) Run model
+output_1990_full <- predict(img_1990,
+                            rfmodel_RFE_full,
+                            filename = "PIFRE_1990full_classification.tif",
+                            overwrite = TRUE)
+
+# 4.3.2) Plot model
+plot(output_1990_full, 
+     axes = FALSE, 
+     box = FALSE,
+     col = c('#004231',   # Treeline Snowgum Woodlands (TSW)
+             '#E67F33',   # Dry Alpine Heathlands (DAH) 
+             '#CE2220',   # Wet Alpine Heathlands (WAH) 
+             '#CED23E',   # Dry Alpine Grasslands (DAG)
+             '#7EB875',   # Wet Alpine Grasslands (WAG)
+             '#E7EBFA',   # Alpine Feldmark (AFM)
+             '#521913'))  # Alpine Rocky Outcrops (ARO) 
+
+
+
+###############################
+##### 2000 classification #####
+###############################
+
+# 3.1.2) Import 2000 composite
+img_2000 <- brick("comp_RFE_2000_b10_l5.tif")
+View(img_2000)
+
+# 4.3.1) Run model
+output_2000_full <- predict(img_2000,
+                            rfmodel_RFE_full,
+                            filename = "PIFRE_2000full_l5_classification.tif",
+                            overwrite = TRUE)
+# 4.3.2) Plot model
+plot(output_2000_full, 
+     axes = FALSE, 
+     box = FALSE,
+     col = c('#004231',   # Treeline Snowgum Woodlands (TSW)
+             '#E67F33',   # Dry Alpine Heathlands (DAH) 
+             '#CE2220',   # Wet Alpine Heathlands (WAH) 
+             '#CED23E',   # Dry Alpine Grasslands (DAG)
+             '#7EB875',   # Wet Alpine Grasslands (WAG)
+             '#E7EBFA',   # Alpine Feldmark (AFM)
+             '#521913'))  # Alpine Rocky Outcrops (ARO) 
+
+
+###############################
+##### 2010 classification #####
+###############################
+
+# 3.1.2) Import 2010 composite
+img_2010 <- brick("comp_RFE_2010_b10.tif")
+View(img_2010)
+
+# 4.3.1) Run model
+output_2010_full <- predict(img_2010,
+                            rfmodel_RFE_full,
+                            filename = "PIFRE_2010full_classification.tif",
+                            overwrite = TRUE)
+# 4.3.2) Plot model
+plot(output_2010_full, 
+     axes = FALSE, 
+     box = FALSE,
+     col = c('#004231',   # Treeline Snowgum Woodlands (TSW)
+             '#E67F33',   # Dry Alpine Heathlands (DAH) 
+             '#CE2220',   # Wet Alpine Heathlands (WAH) 
+             '#CED23E',   # Dry Alpine Grasslands (DAG)
+             '#7EB875',   # Wet Alpine Grasslands (WAG)
+             '#E7EBFA',   # Alpine Feldmark (AFM)
+             '#521913'))  # Alpine Rocky Outcrops (ARO) 
