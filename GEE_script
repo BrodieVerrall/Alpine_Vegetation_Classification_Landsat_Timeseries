@@ -1,0 +1,1275 @@
+// #######################################################################################################################################
+// #######################################################################################################################################
+// #######################################################################################################################################
+// ###### Decadal vegetation dynamics in the Kosciuszko Alpine Area using RF classification of LANDSAT 5-8 growing season composites #####
+// #######################################################################################################################################
+// #######################################################################################################################################
+// #######################################################################################################################################
+
+
+///////////////////////////////////////////////////////////////
+//     1) Set up Study Area and Visualisation Parameters     //
+///////////////////////////////////////////////////////////////
+
+//1.1 Import Collections
+////////////////////////
+    var L8_SR = ee.ImageCollection("LANDSAT/LC08/C02/T1_L2");
+    var L7_SR = ee.ImageCollection("LANDSAT/LE07/C02/T1_L2");
+    var L5_SR = ee.ImageCollection("LANDSAT/LT05/C02/T1_L2");
+
+//1.2 Set up study area and vis params
+
+  // Create KAA 1700+ shapefile variable
+    var KAA_shp_1700 = ee.FeatureCollection(KAA_1700);
+    Map.addLayer(KAA_shp_1700, {color: '262626'}, 'KAA > 1700 m', false);
+
+  // Navigate to area of interest
+    Map.setCenter(148.315002,-36.304373, 11);
+    
+  // Visualse parameters for first cloud free image
+    var RGB_vis8 = {min:5000, max: 15000, gamma: 1.2, bands: ['SR_B4', 'SR_B3', 'SR_B2']};
+    var RGB_vis57 = {min:5000, max: 15000, gamma: 1.2, bands: ['SR_B3', 'SR_B2', 'SR_B1']};
+    
+  // Visualse parameters for growing season composite
+    var visPar57 = {bands:['SR_B3','SR_B2','SR_B1'], min: 0, max: 1.25}; 
+    var visPar8 = {bands:['SR_B4','SR_B3','SR_B2'], min: 0, max: 1.25}; 
+
+//1.3 Generate first cloud Free images in 1990, 2000, 2010, 2020
+////////////////////////////////////////////////////////////////
+ 
+  //1990
+  //////
+  // How many images in 1990 composite
+    var GS_2020_comp = L5_SR.filterBounds(KAA_1700).filterDate('1990-01-01', '1990-05-30');
+    print(GS_2020_comp, 'Images in 1990 Composite');
+  
+  //First cloud-free image from 1990 Growing Season
+    var GS_1990 = L5_SR
+       .filterBounds(KAA_1700)
+        .filterDate('1990-01-01', '1990-05-30')
+        .sort('CLOUD_COVER')
+        .first()
+        .clip(KAA_1700);
+    print(GS_1990, 'GS_1990');
+    Map.addLayer(GS_1990, RGB_vis57, 'GS_1990', false);
+
+  //2000
+  //////
+  // How many images in 2000 composite
+    var GS_2000_comp = L7_SR.filterBounds(KAA_1700).filterDate('2000-01-01', '2000-05-30');
+    print(GS_2000_comp, 'Images in 2000 Composite');
+  
+  //First cloud-free image from 2000 Growing Season
+    var GS_2000 = L7_SR
+       .filterBounds(KAA_1700)
+        .filterDate('2000-01-01', '2000-05-30')
+        .sort('CLOUD_COVER')
+        .first()
+        .clip(KAA_1700);
+    print(GS_2000, 'GS_2000');
+    Map.addLayer(GS_2000, RGB_vis57, 'GS_2000', false);
+
+  //2010
+  //////
+  // How many images in 2000 composite
+    var GS_2010_comp_l5 = L5_SR.filterBounds(KAA_1700).filterDate('2010-01-01', '2010-05-30');
+    print(GS_2010_comp_l5, 'Images in 2010 L5 Composite');
+  
+  //First cloud-free image from 2000 Growing Season
+    var GS_2010_l5 = L5_SR
+       .filterBounds(KAA_1700)
+        .filterDate('2010-01-01', '2010-05-30')
+        .sort('CLOUD_COVER')
+        .first()
+        .clip(KAA_1700);
+    print(GS_2010_l5, 'GS_2010_l5');
+    Map.addLayer(GS_2010_l5, RGB_vis57, 'GS_2010_l5', false);
+
+  // How many images in 2000 composite l7
+    var GS_2010_comp_l7 = L7_SR.filterBounds(KAA_1700).filterDate('2010-01-01', '2010-05-30');
+    print(GS_2010_comp_l7, 'Images in 2010 L7 Composite');
+  
+  //First cloud-free image from 2000 Growing Season l7
+    var GS_2010_l7 = L7_SR
+       .filterBounds(KAA_1700)
+        .filterDate('2010-01-01', '2010-05-30')
+        .sort('CLOUD_COVER')
+        .first()
+        .clip(KAA_1700);
+    print(GS_2010_l7, 'GS_2010_l7');
+    Map.addLayer(GS_2010_l7, RGB_vis57, 'GS_2010_l7', false);
+
+  //2020
+  //////
+  // How many images in 2020 composite
+    var GS_2020_comp = L8_SR.filterBounds(KAA_1700).filterDate('2020-01-01', '2020-05-30');
+    print(GS_2020_comp, 'Images in 2020 Composite');
+  
+  //First cloud-free image from 2020 Growing Season
+    var GS_2020 = L8_SR
+     .filterBounds(KAA_1700)
+      .filterDate('2020-01-01', '2020-05-30')
+      .sort('CLOUD_COVER')
+      .first()
+      .clip(KAA_1700);
+    print(GS_2020, 'GS_2020');
+    Map.addLayer(GS_2020, RGB_vis8, 'GS_2020', false);
+
+
+// #######################################################################################################################################
+// #######################################################################################################################################
+
+
+///////////////////////////////////////////////////////////////
+//            2) Set up Filtered Landsat Composite           //
+///////////////////////////////////////////////////////////////
+
+//2.1) Cloud and Snow Masking
+/////////////////////////////
+
+function maskClouds(image) {
+  
+  // Bits 2, 3 and 4 are cirrus, cloud, and cloud shadow respectively.
+    var cloudShadowBitMask = ee.Number(2).pow(4).int();
+    var cloudsBitMask = ee.Number(2).pow(3).int();  
+    var snowBitMask = ee.Number(2).pow(5).int();   
+    
+    // Get the QA_PIXEL band.
+    var qa = image.select('QA_PIXEL');
+    
+     // Both flags should be set to zero, indicating clear conditions.
+    var mask = qa.bitwiseAnd(cloudShadowBitMask).eq(0).and(qa.bitwiseAnd(cloudsBitMask).eq(0))
+    .and(qa.bitwiseAnd(snowBitMask).eq(0)); 
+  
+  // Return the masked image, scaled to [0, 1].
+  return image.updateMask(mask).divide(10000).copyProperties(image, ["system:time_start"]);
+}
+
+
+//2.2) Adding Spectral Indices
+///////////////////////////////
+
+ // This function maps spectral indices for Landsat 5 and 7 Imagery
+    var addIndicesL57_SR = function(img) {
+    // ATSAVI (Adjusted-transformed soil-adjusted VI)
+      var atsavi = img.expression('1.22 * (NIR - (1.22 * RED) - 0.03) / ((1.22 * NIR) + RED - (1.22 * 0.03) + (0.08 * (1 + (1.22 * 1.22))))',{
+        'NIR': img.select('SR_B4'),
+        'RED': img.select('SR_B3')
+      }).rename('ATSAVI');
+    // BWDRVI (Blue-Wide Dynamic Range VI)
+      var bwdrvi = img.expression('((0.1 * NIR) - BLUE) / ((0.1 * NIR) + BLUE)',{
+        'NIR': img.select('SR_B4'),
+        'BLUE': img.select('SR_B1')
+      }).rename('BWDRVI');
+    // GARI (Green Atmospherically Resistant Index)
+      var gari = img.expression('(NIR - (1.7 * (BLUE - RED)))/(NIR + (1.7 * (BLUE - RED)))',{
+        'NIR':img.select('SR_B4'),
+        'BLUE':img.select('SR_B1'),
+        'RED': img.select('SR_B3')
+      }).rename('GARI'); 
+    // GCVI (Green Chorophyll VI)
+      var gcvi = img.expression('(NIR/GREEN)-1',{
+        'NIR':img.select('SR_B4'),
+        'GREEN':img.select('SR_B2')
+      }).rename('GCVI');
+    // CVI (Chlorophyll VI)
+      var cvi = img.expression('NIR * ((RED) / (GREEN*GREEN))',{
+        'NIR': img.select('SR_B4'),
+        'RED': img.select('SR_B3'),
+        'GREEN': img.select('SR_B2')
+      }).rename('CVI'); 
+    // CI (Coloration Index)
+      var ci = img.expression('(RED - BLUE) / RED',{
+        'RED': img.select('SR_B3'),
+        'BLUE': img.select('SR_B1')
+      }).rename('CI');  
+    // CTVI (Corrected Transformed VI)
+      var ctvi = img.expression('((((RED - GREEN)/(RED + GREEN)) + 0.5)/(abs((RED - GREEN)/((RED + GREEN) + 0.5)))) * (sqrt(abs((RED - GREEN)/((RED + GREEN) + 0.5))))',{
+        'RED': img.select('SR_B3'),
+        'GREEN': img.select('SR_B2')
+      }).rename('CTVI'); 
+    //DVI (Difference Vegetation Index)
+      var dvi = img.expression('(NIR - RED)',{
+        'RED': img.select('SR_B3'),
+        'NIR': img.select('SR_B4')
+      }).rename('DVI'); 
+    // GDVI (Green Difference VI)
+      var gdvi = img.expression('NIR - GREEN',{
+        'NIR': img.select('SR_B4'),
+        'GREEN': img.select('SR_B2')
+      }).rename('GDVI'); 
+    // GRVI (Green Ratio VI)
+      var grvi = img.expression('NIR/GREEN',{
+        'NIR': img.select('SR_B4'),
+        'GREEN': img.select('SR_B2')
+      }).rename('GRVI');
+    // GVI (Green VI)
+      var gvi = img.expression('(-0.2848 * BLUE) + (-0.2435 * BLUE) + (-0.5436 * RED) + (0.7243 * NIR) + (0.0840 * SWIR1) + (-0.1800 * SWIR2)',{
+        'NIR': img.select('SR_B4'),
+        'RED':img.select('SR_B3'),
+        'BLUE':img.select('SR_B1'),
+        'SWIR1':img.select('SR_B5'),
+        'SWIR2':img.select('SR_B7')
+      }).rename('GVI');
+    // EVI (Enhanced Vegeation Index = greenness)
+      var evi = img.expression('2.5 * ((NIR - Red) / (NIR + 6 * Red - 7.5* Blue + 1))', {
+        'NIR':img.select('SR_B4'),
+        'Red':img.select('SR_B3'),
+        'Blue':img.select('SR_B1')
+      }).rename('EVI');
+    // GEMI (Global Environmental Monitoring Index)
+      var gemi = img.expression('((((2 * (NIR * NIR)) + (1.5 * NIR) + (0.5 * RED))/(NIR + RED + 0.5))*(0.75 * (((2 * ((NIR * NIR) - (RED * RED))) + ((1.5 * NIR) + (0.5 * RED)))/(NIR + RED + 0.5))) - ((RED - 0.125)/1 - RED))',{
+        'NIR': img.select('SR_B4'),
+        'RED': img.select('SR_B3')
+      }).rename('GEMI');
+    // GVMI (Global Vegetation Moisture Index)
+      var gvmi = img.expression('((NIR + 0.1) - (SWIR2 + 0.02))/((NIR + 0.1) + (SWIR2 + 0.02))',{
+        'NIR': img.select('SR_B4'),
+        'SWIR2': img.select('SR_B7')
+      }).rename('GVMI'); 
+    // GLI (Green Leaf Index)
+      var gli = img.expression('((2*GREEN) - RED - BLUE) / ((2*GREEN) + RED + BLUE)',{
+        'GREEN': img.select('SR_B2'),
+        'RED': img.select('SR_B3'),
+        'BLUE':img.select('SR_B1')
+      }).rename('GLI');
+    // GNDVI (Green Normalised Difference Vegetation Index)
+      var gndvi = img.normalizedDifference(['SR_B4','SR_B2'])
+      .rename('GNDVI');
+    // GOSAVI (Green Optimised Soil Adjusted VI)
+      var gosavi = img.expression('(NIR - GREEN)/(NIR + GREEN + 0.16)',{
+        'NIR': img.select('SR_B4'),
+        'GREEN': img.select('SR_B2')
+      }).rename('GOSAVI'); 
+    // GSAVI (Green Soil Adjusted VI)
+      var gsavi = img.expression('((NIR - GREEN)/(NIR + GREEN + 0.5)) * (1 + 0.5)',{
+        'NIR': img.select('SR_B4'),
+        'GREEN': img.select('SR_B2')
+      }).rename('GSAVI');   
+    // GBNDVI (Green-Blue NDVI)
+      var gbndvi = img.expression('(NIR - (GREEN + BLUE))/(NIR + (GREEN + BLUE))',{
+        'NIR': img.select('SR_B4'),
+        'GREEN': img.select('SR_B2'),
+        'BLUE': img.select('SR_B1')
+      }).rename('GBNDVI');  
+    // GRNDVI (Green-Red NDVI)
+      var grndvi = img.expression('(NIR - (GREEN + RED))/(NIR + (GREEN + RED))',{
+        'NIR': img.select('SR_B4'),
+        'GREEN': img.select('SR_B2'),
+        'RED': img.select('SR_B3')
+      }).rename('GRNDVI');
+    // IPVI (Infrared percentage VI)
+      var ipvi = img.expression('(NIR)/(((NIR + RED)/2) * (((RED - GREEN)/(RED + GREEN))+1))',{
+        'NIR': img.select('SR_B4'),
+        'GREEN': img.select('SR_B2'),
+        'RED': img.select('SR_B3')
+      }).rename('IPVI'); 
+    // INT (Intensity)
+      var int = img.expression('(1/30.5) * (RED + GREEN + BLUE)',{
+        'BLUE': img.select('SR_B1'),
+        'GREEN': img.select('SR_B2'),
+        'RED': img.select('SR_B3')
+      }).rename('INT');
+    // LAI (Leaf Area Index)
+      var lai = img.expression('(3.618 * (2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1)))) - 0.118',{
+        'NIR': img.select('SR_B4'),
+        'RED': img.select('SR_B3'),
+        'BLUE': img.select('SR_B1')
+      }).rename('LAI'); 
+    // MIDIRVI (Mid infra-red VI)
+      var midirvi = img.expression('NIR/SWIR1',{
+        'NIR': img.select('SR_B4'),
+        'SWIR1': img.select('SR_B5')
+      }).rename('MIDIRVI'); 
+    // NDMI (Normalized Difference Moisture Index USGS)
+      var ndmi = img.expression('(NIR - SWIR1)/(NIR + SWIR1)',{
+        'NIR': img.select('SR_B4'),
+        'SWIR1': img.select('SR_B5')
+      }).rename('NDMI');  
+    // MSAVI (Modified Soil Adjusted VI)
+      var msavi = img.expression('(((2 * NIR) + 1) - (sqrt((((2 * NIR) + 1) *((2 * NIR) + 1)) - (8 * (NIR - RED)))))/2',{
+        'NIR': img.select('SR_B4'),
+        'RED': img.select('SR_B3') 
+      }).rename('MSAVI');
+    // MSR (Modified Simple Ratio)
+      var msr = img.expression('(NIR/RED - 1)/((sqrt(NIR/RED) + 1))',{
+        'NIR': img.select('SR_B4'),
+        'RED': img.select('SR_B3') 
+      }).rename('MSR'); 
+    // NORMG 
+      var normg = img.expression('GREEN/(NIR + RED + GREEN)',{
+        'NIR': img.select('SR_B4'),
+        'RED': img.select('SR_B3'),
+        'GREEN': img.select('SR_B2')
+      }).rename('NORMG');  
+    // NORMIR 
+      var normir = img.expression('NIR/(NIR + RED + GREEN)',{
+        'NIR': img.select('SR_B4'),
+        'RED': img.select('SR_B3'),
+        'GREEN': img.select('SR_B2')
+      }).rename('NORMIR');   
+    // NORMR 
+      var normr = img.expression('RED/(NIR + RED + GREEN)',{
+        'NIR': img.select('SR_B4'),
+        'RED': img.select('SR_B3'),
+        'GREEN': img.select('SR_B2')
+      }).rename('NORMR');  
+    // NDGRI (Normalised Difference Green-Red Index)
+      var ndgri = img.expression('(GREEN - RED)/(GREEN + RED)',{
+        'RED': img.select('SR_B3'),
+        'GREEN': img.select('SR_B2')
+      }).rename('NDGRI');    
+    // NDNIRBI (Normalised Difference NIR-BLUE Index)
+      var ndnbi = img.expression('(NIR - BLUE)/(NIR + BLUE)',{
+        'NIR': img.select('SR_B4'),
+        'BLUE': img.select('SR_B1')
+      }).rename('NDNBI');      
+    // NDNIRGI (Normalised Difference NIR-GREEN Index)
+      var ndngi = img.expression('(NIR - GREEN)/(NIR + GREEN)',{
+        'NIR': img.select('SR_B4'),
+        'GREEN': img.select('SR_B2')
+      }).rename('NDNGI');  
+    // NDMNI (Normalised Difference Modified NIR Index/Normailised Burn Ratio)
+      var ndmni = img.expression('(NIR - SWIR2)/(NIR + SWIR2)',{
+        'NIR': img.select('SR_B4'),
+        'SWIR2': img.select('SR_B7')
+      }).rename('NDMNI');
+    // NDRBVI (Normalised Difference Red-Blue VI)
+      var ndrbvi = img.expression('(NIR - (GREEN + RED + BLUE))/(NIR + (GREEN + RED + BLUE))',{
+        'NIR': img.select('SR_B4'), 
+        'RED': img.select('SR_B3'),
+        'GREEN': img.select('SR_B2'),
+        'BLUE': img.select('SR_B1')
+      }).rename('NDRBVI');  
+    // NDRGRI (Normalised Difference Red-Green Redness Index)
+      var ndrgri = img.expression('(RED - GREEN)/(RED + GREEN)',{
+        'RED': img.select('SR_B3'),
+        'GREEN': img.select('SR_B2')
+      }).rename('NDRGRI'); 
+    // NDVI
+      var ndvi = img.normalizedDifference(['SR_B4','SR_B3'])
+      .rename('NDVI');   
+    // NDWI (Normailsed Difference Water Index)
+      var ndwi = img.expression('(Green - NIR) / (Green + NIR)', {
+        'NIR': img.select('SR_B4'),
+        'Green': img.select('SR_B2')
+      }).rename('NDWI');  
+    // PNDVI (PAN NDVI)
+      var pndvi = img.expression('(NIR - (GREEN + RED + BLUE))/(NIR + (GREEN + RED + BLUE))',{
+        'NIR': img.select('SR_B4'),
+        'RED': img.select('SR_B3'),
+        'GREEN': img.select('SR_B2'),
+        'BLUE': img.select('SR_B1')
+      }).rename('PNDVI');   
+    // SR (Simple Ratio)
+      var sira = img.select('SR_B4').divide(img.select('SR_B3'))
+      .rename('SiRa');
+    // Band Ratio 54
+      var ratio54 = img.select('SR_B5').divide(img.select('SR_B4'))
+      .rename('R54');
+    // Band Ratio 35
+      var ratio35 = img.select('SR_B3').divide(img.select('SR_B5'))
+      .rename('R35');
+    // Simple Ratio Drought Index (SRDI)
+      var srdi = img.expression('SWIR2/NIR',{
+        'NIR': img.select('SR_B4'),
+        'SWIR2': img.select('SR_B7')
+      }).rename('SRDI'); 
+    // Simple Ratio Green Index (SRGI)
+      var srgi = img.expression('SWIR2/GREEN',{
+        'GREEN': img.select('SR_B2'),
+        'SWIR2': img.select('SR_B7')
+      }).rename('SRGI'); 
+    // Simple Ratio Red Index (SRRI)
+      var srri = img.expression('SWIR2/RED',{
+        'RED': img.select('SR_B3'),
+        'SWIR2': img.select('SR_B7')
+      }).rename('SRRI');   
+    // SLAVI (Specific Leaf Area VI)
+      var slavi = img.expression('NIR/(RED + SWIR2)',{
+        'RED': img.select('SR_B3'),
+        'NIR': img.select('SR_B4'),
+        'SWIR2': img.select('SR_B7')
+      }).rename('SLAVI');   
+    // TCV (Tasselled Cap Vegetation)
+      var tcv = img.expression('(- 0.2848 * BLUE) - (0.2435 * GREEN) - (0.5436 * RED) + (0.7243 * NIR) + (0.0840 * SWIR1) - (0.1800* SWIR2)',{
+        'NIR': img.select('SR_B4'),
+        'RED': img.select('SR_B3'),
+        'GREEN': img.select('SR_B2'),
+        'BLUE': img.select('SR_B1'),
+        'SWIR2': img.select('SR_B7'),
+        'SWIR1': img.select('SR_B5')
+      }).rename('TCV');   
+    // TCW (Tasselled Cap Wetness)
+      var tcw = img.expression('(0.1509 * BLUE) + (0.1973 * GREEN) + (0.3279 * RED) + (0.3406 * NIR) - (0.7112 * SWIR1) - (0.4572 *SWIR2)',{
+        'NIR': img.select('SR_B4'),
+        'RED': img.select('SR_B3'),
+        'GREEN': img.select('SR_B2'),
+        'BLUE': img.select('SR_B1'),
+        'SWIR2': img.select('SR_B7'),
+        'SWIR1': img.select('SR_B5')
+      }).rename('TCW');   
+    // TVI (Transformed VI)
+      var tvi = img.expression('sqrt(((RED - GREEN)/(RED + GREEN)) + 0.5)',{
+        'RED': img.select('SR_B3'),
+        'GREEN': img.select('SR_B2')
+      }).rename('TVI');  
+    // SAVI (Soil Adjusted Vegetation Index)
+      var savi = img.expression('((NIR - Red) / (NIR + Red + 0.5)) * (1.0 + 0.5)', {
+        'NIR': img.select('SR_B4'),
+        'Red': img.select('SR_B3')
+      }).rename('SAVI');
+    // NDBSI (Normalised Difference Bare Soil Index - Chen (2004)
+      var ndbsi = img.expression('(((SWIR2 + RED) - (NIR - BLUE))/((SWIR2 + RED) + (NIR + BLUE)))',{
+        'SWIR2': img.select('SR_B7'),
+        'RED':img.select('SR_B3'),
+        'NIR':img.select('SR_B4'),
+        'BLUE':img.select('SR_B1')
+      }).rename('NDBSI');
+    // NDBaI (Normalised Difference Bareness Index - Zhao and Chen (2005)
+      var ndbai = img.expression('((SWIR1 - THERM)/(SWIR1 + THERM))',{
+        'SWIR1': img.select('SR_B5'),
+        'THERM':img.select('ST_B6')
+      }).rename('NDBaI'); 
+    // NDRI (Normalised Difference Rock Index - Huang and Cai (2009)
+      var ndri = img.expression('((SWIR1 - RED)/(SWIR1 + RED))',{
+        'SWIR1': img.select('SR_B5'),
+        'RED':img.select('SR_B3')
+      }).rename('NDRI'); 
+    // NBR (Normalised Burn Ratio USGS)
+      var nbr = img.expression('((NIR - SWIR2)/(NIR + SWIR2))',{
+        'SWIR2': img.select('SR_B7'),
+        'NIR':img.select('SR_B4')
+      }).rename('NBR'); 
+    // NBR2 (Normalised Burn Ratio 2 USGS)
+      var nbr2 = img.expression('((SWIR1 - SWIR2)/(SWIR1 + SWIR2))',{
+        'SWIR2': img.select('SR_B7'),
+        'SWIR1':img.select('SR_B5')
+      }).rename('NBR2');
+    // ARVI (Atmospherically Resistant VI)
+      var arvi = img.expression('(NIR - (2 * RED - BLUE))/(NIR + (2 * RED - BLUE))',{
+        'NIR': img.select('SR_B4'),
+        'RED':img.select('SR_B3'),
+        'BLUE':img.select('SR_B1')
+      }).rename('ARVI');
+    // NLI (Non-Linear Index)
+      var nli = img.expression('((NIR * NIR) - RED)/((NIR * NIR) + RED)',{
+        'NIR': img.select('SR_B4'),
+        'RED':img.select('SR_B3')
+      }).rename('NLI');
+    // RDVI (Renormailised Difference Vegetation Index)
+      var rdvi = img.expression('(NIR - RED)/(sqrt(NIR + RED))',{
+        'NIR': img.select('SR_B4'),
+        'RED':img.select('SR_B3')
+      }).rename('RDVI');
+    //TDVI (Transformed Difference VI)
+      var tdvi = img.expression('(sqrt(0.5 + ((NIR - RED)/(NIR + RED))))',{
+        'NIR': img.select('SR_B4'),
+        'RED':img.select('SR_B3')
+      }).rename('TDVI');
+    //VARI (Visible Atmospherically Resistant Index)
+      var vari = img.expression('(GREEN - RED)/(GREEN + RED - BLUE)',{
+        'GREEN': img.select('SR_B2'),
+        'RED':img.select('SR_B1'),
+        'BLUE':img.select('SR_B3')
+      }).rename('VARI'); 
+    //OSAVI (Optimised Soil Adjusted VI)
+      var osavi = img.expression('(1.5 * (NIR - RED))/(NIR + RED + 0.16)',{
+        'NIR': img.select('SR_B4'),
+        'RED':img.select('SR_B3')
+      }).rename('OSAVI'); 
+    //DEME (2m DEM Elevation)
+      var deme = DEME_1700
+      .rename('DEME'); 
+    //DEMS (2m DEM Slope)
+      var dems = DEMS_1700
+      .rename('DEMS');
+    //DEMA (2m DEM Aspect)
+      var dema = DEMA_1700
+      .rename('DEMA'); 
+    //DEMG (2m DEM Geomorphons)
+      var demg = DEMG_1700
+      .rename('DEMG'); 
+  
+  return img
+
+    .addBands(ndvi)
+    .addBands(ndmi)
+    .addBands(savi)
+    .addBands(evi)
+    .addBands(ndwi)
+    .addBands(sira)
+    .addBands(ratio54)
+    .addBands(ratio35)
+    .addBands(gcvi)
+    .addBands(ndbsi)
+    .addBands(ndbai)
+    .addBands(ndri)
+    .addBands(gndvi)
+    .addBands(gli)
+    .addBands(grvi)
+    .addBands(atsavi)
+    .addBands(bwdrvi)
+    .addBands(cvi)
+    .addBands(ci)
+    .addBands(ctvi)
+    .addBands(dvi)
+    .addBands(gari)
+    .addBands(gdvi)
+    .addBands(gemi)
+    .addBands(gvmi)
+    .addBands(gvi)
+    .addBands(gosavi)
+    .addBands(gsavi)
+    .addBands(gbndvi)
+    .addBands(grndvi)
+    .addBands(ipvi)
+    .addBands(int)
+    .addBands(lai)
+    .addBands(midirvi)
+    .addBands(msavi)
+    .addBands(msr)
+    .addBands(normg)
+    .addBands(normir)
+    .addBands(normr)
+    .addBands(ndgri)
+    .addBands(ndnbi)
+    .addBands(ndngi)
+    .addBands(ndmni)
+    .addBands(ndrgri)
+    .addBands(pndvi)
+    .addBands(srdi)
+    .addBands(srgi)
+    .addBands(srri)
+    .addBands(slavi)
+    .addBands(tcv)
+    .addBands(tcw)
+    .addBands(tvi)
+    .addBands(nbr)
+    .addBands(nbr2)
+    .addBands(arvi)
+    .addBands(nli)
+    .addBands(rdvi)
+    .addBands(tdvi)
+    .addBands(vari)
+    .addBands(deme)
+    .addBands(dems)
+    .addBands(dema)
+    .addBands(demg)
+    .addBands(osavi);
+};
+
+  // This function maps spectral indices for Landsat 8 Imagery
+    var addIndicesL8_SR = function(img) {
+    // ATSAVI (Adjusted-transformed soil-adjusted VI)
+      var atsavi = img.expression('1.22 * (NIR - (1.22 * RED) - 0.03) / ((1.22 * NIR) + RED - (1.22 * 0.03) + (0.08 * (1 + (1.22 * 1.22))))',{
+        'NIR': img.select('SR_B5'),
+        'RED': img.select('SR_B4')
+      }).rename('ATSAVI');
+    // BWDRVI (Blue-Wide Dynamic Range VI)
+      var bwdrvi = img.expression('((0.1 * NIR) - BLUE) / ((0.1 * NIR) + BLUE)',{
+        'NIR': img.select('SR_B5'),
+        'BLUE': img.select('SR_B2')
+      }).rename('BWDRVI');
+    // GARI (Green Atmospherically Resistant Index)
+      var gari = img.expression('(NIR - (1.7 * (BLUE - RED)))/(NIR + (1.7 * (BLUE - RED)))',{
+        'NIR':img.select('SR_B5'),
+        'BLUE':img.select('SR_B2'),
+        'RED': img.select('SR_B4')
+      }).rename('GARI'); 
+    // GCVI (Green Chorophyll VI)
+      var gcvi = img.expression('(NIR/GREEN)-1',{
+        'NIR':img.select('SR_B5'),
+        'GREEN':img.select('SR_B3')
+      }).rename('GCVI');
+    // CVI (Chlorophyll VI)
+      var cvi = img.expression('NIR * ((RED) / (GREEN*GREEN))',{
+        'NIR': img.select('SR_B5'),
+        'RED': img.select('SR_B4'),
+        'GREEN': img.select('SR_B3')
+      }).rename('CVI'); 
+    // CI (Coloration Index)
+      var ci = img.expression('(RED - BLUE) / RED',{
+        'RED': img.select('SR_B4'),
+        'BLUE': img.select('SR_B2')
+      }).rename('CI');  
+    // CTVI (Corrected Transformed VI)
+      var ctvi = img.expression('((((RED - GREEN)/(RED + GREEN)) + 0.5)/(abs((RED - GREEN)/((RED + GREEN) + 0.5)))) * (sqrt(abs((RED - GREEN)/((RED + GREEN) + 0.5))))',{
+        'RED': img.select('SR_B4'),
+        'GREEN': img.select('SR_B3')
+      }).rename('CTVI'); 
+    //DVI (Difference Vegetation Index)
+      var dvi = img.expression('(NIR - RED)',{
+        'RED': img.select('SR_B4'),
+        'NIR': img.select('SR_B5')
+      }).rename('DVI'); 
+    // GDVI (Green Difference VI)
+      var gdvi = img.expression('NIR - GREEN',{
+        'NIR': img.select('SR_B5'),
+        'GREEN': img.select('SR_B3')
+      }).rename('GDVI'); 
+    // GRVI (Green Ratio VI)
+      var grvi = img.expression('NIR/GREEN',{
+        'NIR': img.select('SR_B5'),
+        'GREEN': img.select('SR_B3')
+      }).rename('GRVI');
+    // GVI (Green VI)
+      var gvi = img.expression('(-0.2848 * BLUE) + (-0.2435 * BLUE) + (-0.5436 * RED) + (0.7243 * NIR) + (0.0840 * SWIR1) + (-0.1800 * SWIR2)',{
+        'NIR': img.select('SR_B5'),
+        'RED':img.select('SR_B4'),
+        'BLUE':img.select('SR_B2'),
+        'SWIR1':img.select('SR_B6'),
+        'SWIR2':img.select('SR_B7')
+      }).rename('GVI');
+    // EVI (Enhanced Vegeation Index = greenness)
+      var evi = img.expression('2.5 * ((NIR - Red) / (NIR + 6 * Red - 7.5* Blue + 1))', {
+        'NIR':img.select('SR_B5'),
+        'Red':img.select('SR_B4'),
+        'Blue':img.select('SR_B2')
+      }).rename('EVI');
+    // GEMI (Global Environmental Monitoring Index)
+      var gemi = img.expression('((((2 * (NIR * NIR)) + (1.5 * NIR) + (0.5 * RED))/(NIR + RED + 0.5))*(0.75 * (((2 * ((NIR * NIR) - (RED * RED))) + ((1.5 * NIR) + (0.5 * RED)))/(NIR + RED + 0.5))) - ((RED - 0.125)/1 - RED))',{
+        'NIR': img.select('SR_B5'),
+        'RED': img.select('SR_B4')
+      }).rename('GEMI');
+    // GVMI (Global Vegetation Moisture Index)
+      var gvmi = img.expression('((NIR + 0.1) - (SWIR2 + 0.02))/((NIR + 0.1) + (SWIR2 + 0.02))',{
+        'NIR': img.select('SR_B5'),
+        'SWIR2': img.select('SR_B7')
+      }).rename('GVMI'); 
+    // GLI (Green Leaf Index)
+      var gli = img.expression('((2*GREEN) - RED - BLUE) / ((2*GREEN) + RED + BLUE)',{
+        'GREEN': img.select('SR_B3'),
+        'RED': img.select('SR_B4'),
+        'BLUE':img.select('SR_B2')
+      }).rename('GLI');
+    // GNDVI (Green Normalised Difference Vegetation Index)
+      var gndvi = img.normalizedDifference(['SR_B5','SR_B3'])
+      .rename('GNDVI');
+    // GOSAVI (Green Optimised Soil Adjusted VI)
+      var gosavi = img.expression('(NIR - GREEN)/(NIR + GREEN + 0.16)',{
+        'NIR': img.select('SR_B5'),
+        'GREEN': img.select('SR_B3')
+      }).rename('GOSAVI'); 
+    // GSAVI (Green Soil Adjusted VI)
+      var gsavi = img.expression('((NIR - GREEN)/(NIR + GREEN + 0.5)) * (1 + 0.5)',{
+        'NIR': img.select('SR_B5'),
+        'GREEN': img.select('SR_B3')
+      }).rename('GSAVI');   
+    // GBNDVI (Green-Blue NDVI)
+      var gbndvi = img.expression('(NIR - (GREEN + BLUE))/(NIR + (GREEN + BLUE))',{
+        'NIR': img.select('SR_B5'),
+        'GREEN': img.select('SR_B3'),
+        'BLUE': img.select('SR_B2')
+      }).rename('GBNDVI');  
+    // GRNDVI (Green-Red NDVI)
+      var grndvi = img.expression('(NIR - (GREEN + RED))/(NIR + (GREEN + RED))',{
+        'NIR': img.select('SR_B5'),
+        'GREEN': img.select('SR_B3'),
+        'RED': img.select('SR_B4')
+      }).rename('GRNDVI');
+    // IPVI (Infrared percentage VI)
+      var ipvi = img.expression('(NIR)/(((NIR + RED)/2) * (((RED - GREEN)/(RED + GREEN))+1))',{
+        'NIR': img.select('SR_B5'),
+        'GREEN': img.select('SR_B3'),
+        'RED': img.select('SR_B4')
+      }).rename('IPVI'); 
+    // INT (Intensity)
+      var int = img.expression('(1/30.5) * (RED + GREEN + BLUE)',{
+        'BLUE': img.select('SR_B2'),
+        'GREEN': img.select('SR_B3'),
+        'RED': img.select('SR_B4')
+      }).rename('INT');
+    // LAI (Leaf Area Index)
+      var lai = img.expression('(3.618 * (2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1)))) - 0.118',{
+        'NIR': img.select('SR_B5'),
+        'RED': img.select('SR_B4'),
+        'BLUE': img.select('SR_B2')
+      }).rename('LAI'); 
+    // MIDIRVI (Mid infra-red VI)
+      var midirvi = img.expression('NIR/SWIR1',{
+        'NIR': img.select('SR_B5'),
+        'SWIR1': img.select('SR_B6')
+      }).rename('MIDIRVI'); 
+    // NDMI (Normalized Difference Moisture Index USGS)
+      var ndmi = img.expression('(NIR - SWIR1)/(NIR + SWIR1)',{
+        'NIR': img.select('SR_B5'),
+        'SWIR1': img.select('SR_B6')
+      }).rename('NDMI');  
+    // MSAVI (Modified Soil Adjusted VI)
+      var msavi = img.expression('(((2 * NIR) + 1) - (sqrt((((2 * NIR) + 1) *((2 * NIR) + 1)) - (8 * (NIR - RED)))))/2',{
+        'NIR': img.select('SR_B5'),
+        'RED': img.select('SR_B4') 
+      }).rename('MSAVI');
+    // MSR (Modified Simple Ratio)
+      var msr = img.expression('(NIR/RED - 1)/((sqrt(NIR/RED) + 1))',{
+        'NIR': img.select('SR_B5'),
+        'RED': img.select('SR_B4') 
+      }).rename('MSR'); 
+    // NORMG 
+      var normg = img.expression('GREEN/(NIR + RED + GREEN)',{
+        'NIR': img.select('SR_B5'),
+        'RED': img.select('SR_B4'),
+        'GREEN': img.select('SR_B3')
+      }).rename('NORMG');  
+    // NORMIR 
+      var normir = img.expression('NIR/(NIR + RED + GREEN)',{
+        'NIR': img.select('SR_B5'),
+        'RED': img.select('SR_B4'),
+        'GREEN': img.select('SR_B3')
+      }).rename('NORMIR');   
+    // NORMR 
+      var normr = img.expression('RED/(NIR + RED + GREEN)',{
+        'NIR': img.select('SR_B5'),
+        'RED': img.select('SR_B4'),
+        'GREEN': img.select('SR_B3')
+      }).rename('NORMR');  
+    // NDGRI (Normalised Difference Green-Red Index)
+      var ndgri = img.expression('(GREEN - RED)/(GREEN + RED)',{
+        'RED': img.select('SR_B4'),
+        'GREEN': img.select('SR_B3')
+      }).rename('NDGRI');    
+    // NDNIRBI (Normalised Difference NIR-BLUE Index)
+      var ndnbi = img.expression('(NIR - BLUE)/(NIR + BLUE)',{
+        'NIR': img.select('SR_B5'),
+        'BLUE': img.select('SR_B2')
+      }).rename('NDNBI');      
+    // NDNIRGI (Normalised Difference NIR-GREEN Index)
+      var ndngi = img.expression('(NIR - GREEN)/(NIR + GREEN)',{
+        'NIR': img.select('SR_B5'),
+        'GREEN': img.select('SR_B3')
+      }).rename('NDNGI');  
+    // NDMNI (Normalised Difference Modified NIR Index/Normailised Burn Ratio)
+      var ndmni = img.expression('(NIR - SWIR2)/(NIR + SWIR2)',{
+        'NIR': img.select('SR_B5'),
+        'SWIR2': img.select('SR_B7')
+      }).rename('NDMNI');
+    // NDRBVI (Normalised Difference Red-Blue VI)
+      var ndrbvi = img.expression('(NIR - (GREEN + RED + BLUE))/(NIR + (GREEN + RED + BLUE))',{
+        'NIR': img.select('SR_B5'), 
+        'RED': img.select('SR_B4'),
+        'GREEN': img.select('SR_B3'),
+        'BLUE': img.select('SR_B2')
+      }).rename('NDRBVI');  
+    // NDRGRI (Normalised Difference Red-Green Redness Index)
+      var ndrgri = img.expression('(RED - GREEN)/(RED + GREEN)',{
+        'RED': img.select('SR_B4'),
+        'GREEN': img.select('SR_B3')
+      }).rename('NDRGRI'); 
+    // NDVI
+      var ndvi = img.normalizedDifference(['SR_B5','SR_B4'])
+      .rename('NDVI');   
+    // NDWI (Normailsed Difference Water Index)
+      var ndwi = img.expression('(Green - NIR) / (Green + NIR)', {
+        'NIR': img.select('SR_B5'),
+        'Green': img.select('SR_B3')
+      }).rename('NDWI');  
+    // PNDVI (PAN NDVI)
+      var pndvi = img.expression('(NIR - (GREEN + RED + BLUE))/(NIR + (GREEN + RED + BLUE))',{
+        'NIR': img.select('SR_B5'),
+        'RED': img.select('SR_B4'),
+        'GREEN': img.select('SR_B3'),
+        'BLUE': img.select('SR_B2')
+      }).rename('PNDVI');   
+    // SR (Simple Ratio)
+      var sira = img.select('SR_B5').divide(img.select('SR_B4'))
+      .rename('SiRa');
+    // Band Ratio 54
+      var ratio54 = img.select('SR_B6').divide(img.select('SR_B5'))
+      .rename('R54');
+    // Band Ratio 35
+      var ratio35 = img.select('SR_B4').divide(img.select('SR_B6'))
+      .rename('R35');
+    // Simple Ratio Drought Index (SRDI)
+      var srdi = img.expression('SWIR2/NIR',{
+        'NIR': img.select('SR_B5'),
+        'SWIR2': img.select('SR_B7')
+      }).rename('SRDI'); 
+    // Simple Ratio Green Index (SRGI)
+      var srgi = img.expression('SWIR2/GREEN',{
+        'GREEN': img.select('SR_B3'),
+        'SWIR2': img.select('SR_B7')
+      }).rename('SRGI'); 
+    // Simple Ratio Red Index (SRRI)
+      var srri = img.expression('SWIR2/RED',{
+        'RED': img.select('SR_B4'),
+        'SWIR2': img.select('SR_B7')
+      }).rename('SRRI');   
+    // SLAVI (Specific Leaf Area VI)
+      var slavi = img.expression('NIR/(RED + SWIR2)',{
+        'RED': img.select('SR_B4'),
+        'NIR': img.select('SR_B5'),
+        'SWIR2': img.select('SR_B7')
+      }).rename('SLAVI');   
+    // TCV (Tasselled Cap Vegetation)
+      var tcv = img.expression('(- 0.2848 * BLUE) - (0.2435 * GREEN) - (0.5436 * RED) + (0.7243 * NIR) + (0.0840 * SWIR1) - (0.1800* SWIR2)',{
+        'NIR': img.select('SR_B5'),
+        'RED': img.select('SR_B4'),
+        'GREEN': img.select('SR_B3'),
+        'BLUE': img.select('SR_B2'),
+        'SWIR2': img.select('SR_B7'),
+        'SWIR1': img.select('SR_B6')
+      }).rename('TCV');   
+    // TCW (Tasselled Cap Wetness)
+      var tcw = img.expression('(0.1509 * BLUE) + (0.1973 * GREEN) + (0.3279 * RED) + (0.3406 * NIR) - (0.7112 * SWIR1) - (0.4572 *SWIR2)',{
+        'NIR': img.select('SR_B5'),
+        'RED': img.select('SR_B4'),
+        'GREEN': img.select('SR_B3'),
+        'BLUE': img.select('SR_B2'),
+        'SWIR2': img.select('SR_B7'),
+        'SWIR1': img.select('SR_B6')
+      }).rename('TCW');   
+    // TVI (Transformed VI)
+      var tvi = img.expression('sqrt(((RED - GREEN)/(RED + GREEN)) + 0.5)',{
+        'RED': img.select('SR_B4'),
+        'GREEN': img.select('SR_B3')
+      }).rename('TVI');  
+    // SAVI (Soil Adjusted Vegetation Index)
+      var savi = img.expression('((NIR - Red) / (NIR + Red + 0.5)) * (1.0 + 0.5)', {
+        'NIR': img.select('SR_B5'),
+        'Red': img.select('SR_B4')
+      }).rename('SAVI');
+    // NDBSI (Normalised Difference Bare Soil Index - Chen (2004)
+      var ndbsi = img.expression('(((SWIR2 + RED) - (NIR - BLUE))/((SWIR2 + RED) + (NIR + BLUE)))',{
+        'SWIR2': img.select('SR_B7'),
+        'RED':img.select('SR_B4'),
+        'NIR':img.select('SR_B5'),
+        'BLUE':img.select('SR_B2')
+      }).rename('NDBSI');
+    // NDBaI (Normalised Difference Bareness Index - Zhao and Chen (2005)
+      var ndbai = img.expression('((SWIR1 - THERM)/(SWIR1 + THERM))',{
+        'SWIR1': img.select('SR_B6'),
+        'THERM':img.select('ST_B10')
+      }).rename('NDBaI'); 
+    // NDRI (Normalised Difference Rock Index - Huang and Cai (2009)
+      var ndri = img.expression('((SWIR1 - RED)/(SWIR1 + RED))',{
+        'SWIR1': img.select('SR_B6'),
+        'RED':img.select('SR_B4')
+      }).rename('NDRI'); 
+    // NBR (Normalised Burn Ratio USGS)
+      var nbr = img.expression('((NIR - SWIR2)/(NIR + SWIR2))',{
+        'SWIR2': img.select('SR_B7'),
+        'NIR':img.select('SR_B5')
+      }).rename('NBR'); 
+    // NBR2 (Normalised Burn Ratio 2 USGS)
+      var nbr2 = img.expression('((SWIR1 - SWIR2)/(SWIR1 + SWIR2))',{
+        'SWIR2': img.select('SR_B7'),
+        'SWIR1':img.select('SR_B6')
+      }).rename('NBR2');
+    // ARVI (Atmospherically Resistant VI)
+      var arvi = img.expression('(NIR - (2 * RED - BLUE))/(NIR + (2 * RED - BLUE))',{
+        'NIR': img.select('SR_B5'),
+        'RED':img.select('SR_B4'),
+        'BLUE':img.select('SR_B2')
+      }).rename('ARVI');
+    // NLI (Non-Linear Index)
+      var nli = img.expression('((NIR * NIR) - RED)/((NIR * NIR) + RED)',{
+        'NIR': img.select('SR_B5'),
+        'RED':img.select('SR_B4')
+      }).rename('NLI');
+    // RDVI (Renormailised Difference Vegetation Index)
+      var rdvi = img.expression('(NIR - RED)/(sqrt(NIR + RED))',{
+        'NIR': img.select('SR_B5'),
+        'RED':img.select('SR_B4')
+      }).rename('RDVI');
+    //TDVI (Transformed Difference VI)
+      var tdvi = img.expression('(sqrt(0.5 + ((NIR - RED)/(NIR + RED))))',{
+        'NIR': img.select('SR_B5'),
+        'RED':img.select('SR_B4')
+      }).rename('TDVI');
+    //VARI (Visible Atmospherically Resistant Index)
+      var vari = img.expression('(GREEN - RED)/(GREEN + RED - BLUE)',{
+        'GREEN': img.select('SR_B3'),
+        'RED':img.select('SR_B4'),
+        'BLUE':img.select('SR_B2')
+      }).rename('VARI'); 
+    //OSAVI (Optimised Soil Adjusted VI)
+      var osavi = img.expression('(1.5 * (NIR - RED))/(NIR + RED + 0.16)',{
+        'NIR': img.select('SR_B5'),
+        'RED':img.select('SR_B4')
+      }).rename('OSAVI'); 
+    //DEME (2m DEM Elevation)
+      var deme = DEME_1700
+      .rename('DEME'); 
+    //DEMS (2m DEM Slope)
+      var dems = DEMS_1700
+      .rename('DEMS');
+    //DEMA (2m DEM Aspect)
+      var dema = DEMA_1700
+      .rename('DEMA'); 
+    //DEMG (2m DEM Geomorphons)
+      var demg = DEMG_1700
+      .rename('DEMG'); 
+  
+  return img
+
+    .addBands(ndvi)
+    .addBands(ndmi)
+    .addBands(savi)
+    .addBands(evi)
+    .addBands(ndwi)
+    .addBands(sira)
+    .addBands(ratio54)
+    .addBands(ratio35)
+    .addBands(gcvi)
+    .addBands(ndbsi)
+    .addBands(ndbai)
+    .addBands(ndri)
+    .addBands(gndvi)
+    .addBands(gli)
+    .addBands(grvi)
+    .addBands(atsavi)
+    .addBands(bwdrvi)
+    .addBands(cvi)
+    .addBands(ci)
+    .addBands(ctvi)
+    .addBands(dvi)
+    .addBands(gari)
+    .addBands(gdvi)
+    .addBands(gemi)
+    .addBands(gvmi)
+    .addBands(gvi)
+    .addBands(gosavi)
+    .addBands(gsavi)
+    .addBands(gbndvi)
+    .addBands(grndvi)
+    .addBands(ipvi)
+    .addBands(int)
+    .addBands(lai)
+    .addBands(midirvi)
+    .addBands(msavi)
+    .addBands(msr)
+    .addBands(normg)
+    .addBands(normir)
+    .addBands(normr)
+    .addBands(ndgri)
+    .addBands(ndnbi)
+    .addBands(ndngi)
+    .addBands(ndmni)
+    .addBands(ndrgri)
+    .addBands(pndvi)
+    .addBands(srdi)
+    .addBands(srgi)
+    .addBands(srri)
+    .addBands(slavi)
+    .addBands(tcv)
+    .addBands(tcw)
+    .addBands(tvi)
+    .addBands(nbr)
+    .addBands(nbr2)
+    .addBands(arvi)
+    .addBands(nli)
+    .addBands(rdvi)
+    .addBands(tdvi)
+    .addBands(vari)
+    .addBands(deme)
+    .addBands(dems)
+    .addBands(dema)
+    .addBands(demg)
+    .addBands(osavi);
+};
+
+//2.3) Create Masked Growing Season Composites
+//////////////////////////////////////////////
+  
+  // 1990 Masked Composite
+  ////////////////////////
+    var gsm_1990_l5 = L5_SR.filterDate('1990-01-01', '1990-05-30')
+      .map(maskClouds)  // Mask for clouds and cloud shadows
+      .map(addIndicesL57_SR) // Add spectral indicies
+      .median() // Median reducer per pixel
+      .clip(KAA_1700);  // Clip to Kosciuszko Alpine Area
+    Map.addLayer(gsm_1990_l5.clip(KAA_1700), visPar57, '1990 Masked GS Composite', false);
+    print(gsm_1990_l5,'1990 Masked GS Composite');
+
+  // 2000 Masked Composite
+  ////////////////////////
+    var gsm_2000_l7 = L7_SR.filterDate('2000-01-01', '2000-05-30')
+      .map(maskClouds)  // Mask for clouds and cloud shadows
+      .map(addIndicesL57_SR) // Add spectral indicies
+      .median() // Median reducer per pixel
+      .clip(KAA_1700);  // Clip to Kosciuszko Alpine Area
+    Map.addLayer(gsm_2000_l7.clip(KAA_1700), visPar57, '2000 Masked GS Composite', false);
+    print(gsm_2000_l7,'2000 Masked GS Composite');
+
+  // 2010 Masked Composite
+  ////////////////////////
+    var gsm_2010_l5 = L5_SR.filterDate('2010-01-01', '2010-05-30')
+      .map(maskClouds)  // Mask for clouds and cloud shadows
+      .map(addIndicesL57_SR) // Add spectral indicies
+      .median() // Median reducer per pixel
+      .clip(KAA_1700);  // Clip to Kosciuszko Alpine Area
+    Map.addLayer(gsm_2010_l5.clip(KAA_1700), visPar57, '2010 Masked GS Composite', false);
+    print(gsm_2010_l5,'2010 Masked GS Composite');
+    
+    var gsm_2010_l7 = L7_SR.filterDate('2010-01-01', '2010-05-30')
+      .map(maskClouds)  // Mask for clouds and cloud shadows
+      .map(addIndicesL57_SR) // Add spectral indicies
+      .median() // Median reducer per pixel
+      .clip(KAA_1700);  // Clip to Kosciuszko Alpine Area
+    Map.addLayer(gsm_2010_l7.clip(KAA_1700), visPar57, '2010 Masked GS Composite', false);
+    print(gsm_2010_l7,'2010 Masked GS Composite');
+  
+  // 2020 Masked Composite
+  ////////////////////////
+    var gsm_2020_l8 = L8_SR.filterDate('2020-01-01', '2020-05-30')
+      .map(maskClouds)  // Mask for clouds and cloud shadows
+      .map(addIndicesL8_SR) // Add spectral indicies
+      .median() // Median reducer per pixel
+      .clip(KAA_1700);  // Clip to Kosciuszko Alpine Area
+    Map.addLayer(gsm_2020_l8.clip(KAA_1700), visPar8, '2020 Masked GS Composite', false);
+    print(gsm_2020_l8,'2020 Masked GS Composite');
+
+
+
+//2.4) Select features identified by RFE algorithm in R
+///////////////////////////////////////////////////////
+
+  // 1990 Composite for RF Classification
+  ///////////////////////////////////////
+    var gsf_1990 = gsm_1990_l5
+      //Select bands for composite to undergo recursive feature elimination in R (caret)
+        .select('SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'ST_B6', 'ARVI', 'ATSAVI', 'BWDRVI', 'CI', 'CTVI', 'CVI',
+                'DEMA', 'DEME', 'DEMS', 'DVI', 'EVI', 'GARI', 'GBNDVI', 'GCVI', 'GDVI', 'GEMI', 'GLI', 'GNDVI', 'GOSAVI',
+                'GRNDVI', 'GSAVI', 'GVI', 'GVMI', 'INT', 'IPVI', 'LAI', 'MIDIRVI', 'MSAVI',
+                'MSR', 'NBR', 'NBR2', 'NDBaI', 'NDBSI', 'NDGRI', 'NDMI', 'NDMNI', 'NDNBI', 'NDNGI', 'NDRGRI', 'NDRI',
+                'NDVI', 'NDWI', 'NLI', 'NORMG', 'NORMIR', 'NORMR', 'OSAVI', 'PNDVI', 'R35', 'R54', 'RDVI', 'SAVI', 'SiRa', 
+                'SLAVI', 'SRDI', 'SRGI', 'SRRI', 'TCV', 'TCW', 'TDVI', 'TVI', 'VARI')
+      // Clips the composite to our area of interest
+        .clip(KAA_1700)
+      //Cast band types to double
+        .toDouble(); 
+    print(gsf_1990, '1990_GSF');
+
+  // /////EXPORTING Composite for RF Classification in R
+  //     //Export to Drive
+  //         Export.image.toDrive({
+  //       image: gsf_1990,
+  //       description: 'comp_RFE_1990',
+  //       folder: 'GEEKAA_composites',
+  //       scale: 30,
+  //       maxPixels: 1e13,
+  //       region: KAA_1700,
+  //       crs: 'EPSG:4283'
+  //     });
+
+
+  // 2000 Composite for RF Classification
+  ///////////////////////////////////////
+    var gsf_2000 = gsm_2000_l7
+      //Select bands for composite to undergo recursive feature elimination in R (caret)
+        .select('SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'ST_B6', 'ARVI', 'ATSAVI', 'BWDRVI', 'CI', 'CTVI', 'CVI',
+                'DEMA', 'DEME', 'DEMS', 'DVI', 'EVI', 'GARI', 'GBNDVI', 'GCVI', 'GDVI', 'GEMI', 'GLI', 'GNDVI', 'GOSAVI',
+                'GRNDVI', 'GSAVI', 'GVI', 'GVMI', 'INT', 'IPVI', 'LAI', 'MIDIRVI', 'MSAVI',
+                'MSR', 'NBR', 'NBR2', 'NDBaI', 'NDBSI', 'NDGRI', 'NDMI', 'NDMNI', 'NDNBI', 'NDNGI', 'NDRGRI', 'NDRI',
+                'NDVI', 'NDWI', 'NLI', 'NORMG', 'NORMIR', 'NORMR', 'OSAVI', 'PNDVI', 'R35', 'R54', 'RDVI', 'SAVI', 'SiRa', 
+                'SLAVI', 'SRDI', 'SRGI', 'SRRI', 'TCV', 'TCW', 'TDVI', 'TVI', 'VARI')
+      // Clips the composite to our area of interest
+        .clip(KAA_1700)
+      //Cast band types to double
+        .toDouble(); 
+    print(gsf_2000, '2000_GSF');
+
+  // /////EXPORTING Composite for RF Classification in R
+  //     //Export to Drive
+  //         Export.image.toDrive({
+  //       image: gsf_2000,
+  //       description: 'comp_RFE_2000',
+  //       folder: 'GEEKAA_composites',
+  //       scale: 30,
+  //       maxPixels: 1e13,
+  //       region: KAA_1700,
+  //       crs: 'EPSG:4283'
+  //     });
+
+
+  // 2010 Composite for RF Classification
+  ///////////////////////////////////////
+    var gsf_2010 = gsm_2010_l5
+      //Select bands for composite to undergo recursive feature elimination in R (caret)
+        .select('SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'ST_B6', 'ARVI', 'ATSAVI', 'BWDRVI', 'CI', 'CTVI', 'CVI',
+                'DEMA', 'DEME', 'DEMS', 'DVI', 'EVI', 'GARI', 'GBNDVI', 'GCVI', 'GDVI', 'GEMI', 'GLI', 'GNDVI', 'GOSAVI',
+                'GRNDVI', 'GSAVI', 'GVI', 'GVMI', 'INT', 'IPVI', 'LAI', 'MIDIRVI', 'MSAVI',
+                'MSR', 'NBR', 'NBR2', 'NDBaI', 'NDBSI', 'NDGRI', 'NDMI', 'NDMNI', 'NDNBI', 'NDNGI', 'NDRGRI', 'NDRI',
+                'NDVI', 'NDWI', 'NLI', 'NORMG', 'NORMIR', 'NORMR', 'OSAVI', 'PNDVI', 'R35', 'R54', 'RDVI', 'SAVI', 'SiRa', 
+                'SLAVI', 'SRDI', 'SRGI', 'SRRI', 'TCV', 'TCW', 'TDVI', 'TVI', 'VARI')
+      // Clips the composite to our area of interest
+        .clip(KAA_1700)
+      //Cast band types to double
+        .toDouble(); 
+    print(gsf_2010, '2010_GSF');
+
+  // /////EXPORTING Composite for RF Classification in R
+  //     //Export to Drive
+  //         Export.image.toDrive({
+  //       image: gsf_2010,
+  //       description: 'comp_RFE_2010',
+  //       folder: 'GEEKAA_composites',
+  //       scale: 30,
+  //       maxPixels: 1e13,
+  //       region: KAA_1700,
+  //       crs: 'EPSG:4283'
+  //     });
+
+    var gsf_2010 = gsm_2010_l7
+      //Select bands for composite to undergo recursive feature elimination in R (caret)
+        .select('SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'ST_B6', 'ARVI', 'ATSAVI', 'BWDRVI', 'CI', 'CTVI', 'CVI',
+                'DEMA', 'DEME', 'DEMS', 'DVI', 'EVI', 'GARI', 'GBNDVI', 'GCVI', 'GDVI', 'GEMI', 'GLI', 'GNDVI', 'GOSAVI',
+                'GRNDVI', 'GSAVI', 'GVI', 'GVMI', 'INT', 'IPVI', 'LAI', 'MIDIRVI', 'MSAVI',
+                'MSR', 'NBR', 'NBR2', 'NDBaI', 'NDBSI', 'NDGRI', 'NDMI', 'NDMNI', 'NDNBI', 'NDNGI', 'NDRGRI', 'NDRI',
+                'NDVI', 'NDWI', 'NLI', 'NORMG', 'NORMIR', 'NORMR', 'OSAVI', 'PNDVI', 'R35', 'R54', 'RDVI', 'SAVI', 'SiRa', 
+                'SLAVI', 'SRDI', 'SRGI', 'SRRI', 'TCV', 'TCW', 'TDVI', 'TVI', 'VARI')
+      // Clips the composite to our area of interest
+        .clip(KAA_1700)
+      //Cast band types to double
+        .toDouble(); 
+    print(gsf_2010, '2010_GSF');
+
+  // /////EXPORTING Composite for RF Classification in R
+  //     //Export to Drive
+  //         Export.image.toDrive({
+  //       image: gsf_2010,
+  //       description: 'comp_RFE_2010',
+  //       folder: 'GEEKAA_composites',
+  //       scale: 30,
+  //       maxPixels: 1e13,
+  //       region: KAA_1700,
+  //       crs: 'EPSG:4283'
+  //     });
+
+
+  // 2020 Composite for RF Classification
+  ///////////////////////////////////////
+    var gsf_2020 = gsm_2020_l8
+      //Select bands for composite to undergo recursive feature elimination in R (caret)
+        .select('SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7', 'ST_B10', 'ARVI', 'ATSAVI', 'BWDRVI', 'CI', 'CTVI', 'CVI',
+                'DEMA', 'DEME', 'DEMS', 'DVI', 'EVI', 'GARI', 'GBNDVI', 'GCVI', 'GDVI', 'GEMI', 'GLI', 'GNDVI', 'GOSAVI',
+                'GRNDVI', 'GSAVI', 'GVI', 'GVMI', 'INT', 'IPVI', 'LAI', 'MIDIRVI', 'MSAVI',
+                'MSR', 'NBR', 'NBR2', 'NDBaI', 'NDBSI', 'NDGRI', 'NDMI', 'NDMNI', 'NDNBI', 'NDNGI', 'NDRGRI', 'NDRI',
+                'NDVI', 'NDWI', 'NLI', 'NORMG', 'NORMIR', 'NORMR', 'OSAVI', 'PNDVI', 'R35', 'R54', 'RDVI', 'SAVI', 'SiRa', 
+                'SLAVI', 'SRDI', 'SRGI', 'SRRI', 'TCV', 'TCW', 'TDVI', 'TVI', 'VARI')
+      // Clips the composite to our area of interest
+        .clip(KAA_1700)
+      //Cast band types to double
+        .toDouble(); 
+    print(gsf_2020, '2020_GSF');
+
+  // /////EXPORTING Composite for RF Classification in R
+  //     //Export to Drive
+  //         Export.image.toDrive({
+  //       image: gsf_2020,
+  //       description: 'comp_RFE_2020',
+  //       folder: 'GEEKAA_composites',
+  //       scale: 30,
+  //       maxPixels: 1e13,
+  //       region: KAA_1700,
+  //       crs: 'EPSG:4283'
+  //     });
+
+
+// #######################################################################################################################################
+// #######################################################################################################################################
+
+
+// ///////////////////////////////////////////////////////////////
+// //          3) Construct Random Forest Model                 //
+// ///////////////////////////////////////////////////////////////
+
+// //3.1) Prepare training data and predictors
+// ////////////////////////////////////////////
+
+// //Import training polygons
+// var classes = LandCover;
+//     print(classes, 'Cover Classes');
+
+// //Define the bands you want to include in the model
+// var bands = ['DEME', 'DEMS', 'ST_B10', 'DEMA', 'NBR2', 'SR_B6', 'HUE', 'CI'];
+
+// //Create a variable called image to select the bands of interest and clip to geometry
+// var image = composite_1700.select(bands).clip(KAA_1700);
+
+// //Assemble samples for the model
+// var samples = image.sampleRegions({
+//     collection: classes, // Set of geometries selected for training
+//     properties: ['landcover'], // Label from each geometry
+//     scale: 30 // Make each sample the same size as Landsat pixel
+//     }).randomColumn('random'); // creates a column with random numbers
+
+// //Here we randomly split our samples to set some aside for testing our model's accuracy
+// // using the "random" column we created
+// var split = 0.8; // Roughly 80% for training, 20% for testing.
+// var training = samples.filter(ee.Filter.lt('random', split)); //Subset training data
+// var testing = samples.filter(ee.Filter.gte('random', split)); //Subset testing data
+
+
+// //Print these variables to see how much training and testing data you are using
+//     print('Samples n =', samples.aggregate_count('.all'));
+//     print('Training n =', training.aggregate_count('.all'));
+//     print('Testing n =', testing.aggregate_count('.all'));
+
+
+// //3.2) Begin Random Forest Classification
+// /////////////////////////////////////////
+
+// //.smileRandomForest is used to run the model. Here we run the model using 100 trees
+// // and 5 randomly selected predictors per split ("(100,5)")
+//     var classifier = ee.Classifier.smileRandomForest(500,3).train({ 
+//     features: training.select(['DEME', 'DEMS', 'ST_B10', 'DEMA', 'NBR2', 'SR_B6', 'HUE', 'CI', 'landcover']), //Train using bands and landcover property
+//     classProperty: 'landcover', //Pull the landcover property from classes
+//     inputProperties: bands
+//     });
+// print(classifier);
+
+
+// //3.3) Test the accuracy of the model
+// //////////////////////////////////////
+
+//     var validation = testing.classify(classifier);
+//     var testAccuracy = validation.errorMatrix('landcover', 'classification');
+//     print('Validation error matrix RF: ', testAccuracy);
+//     print('Validation overall accuracy RF: ', testAccuracy.accuracy());
+
+
+// //Importance of Bands/Indicies as Predictors for Random Forest classifer
+//   var dict = classifier.explain();
+//   print('Explain:',dict);
+   
+//   var variable_importance = ee.Feature(null, ee.Dictionary(dict).get('importance'));
+  
+//   var chart =
+//   ui.Chart.feature.byProperty(variable_importance)
+//   .setChartType('ColumnChart')
+//   .setOptions({
+//   title: 'Random Forest Variable Importance',
+//   legend: {position: 'none'},
+//   hAxis: {title: 'Bands'},
+//   vAxis: {title: 'Importance'}
+//   });
+ 
+// print(chart);
+
+// // 3.4) Classify the Landsat composite using the Random Forest model
+// //////////////////////////////////////////////////////////////////
+
+//     var classified_RF = image.select(bands) // select the predictors
+//                       .classify(classifier); // .classify applies the Random Forest
+
+// // //3.5) Map results and export
+// // /////////////////////////////
+
+
+//     Map.addLayer(classified_RF.clip(KAA_1700),
+//       {min: 0, max: 6, palette: ['#004231', '#CE2220', '#E67F33', '#CED23E', '#7EB875', '#E7EBFA', '#521913',]}, 'classification_RFv1_2019');
+
+
+// // ///////EXPORTING CLASSIFICATION IMAGE AND GEOMETRIES
+// //     //Export to Drive
+// //         Export.image.toDrive({
+// //       image: classified_RF,
+// //       description: 'classification_PIRFE_2019_EPSG_4283',
+// //       folder: 'GEEKAA',
+// //       scale: 30,
+// //       maxPixels: 1e13,
+// //       region: KAA_1700,
+// //       crs: 'EPSG:4283'
+// //     });
